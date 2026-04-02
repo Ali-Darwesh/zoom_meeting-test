@@ -26,7 +26,7 @@ Before running the project, ensure you have the following installed:
 
 **1. Clone the repository and install dependencies:**
 ```bash
-git clone <repository-url>
+git clone <https://github.com/Ali-Darwesh/zoom_meeting-test>
 cd zoom-meeting-api
 npm install
 ```
