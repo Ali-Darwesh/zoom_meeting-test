@@ -2,6 +2,11 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 class PrismaMeetingRepository {
+    /**
+     * Persists a newly created meeting entity to the database.
+     * @param {Object} meetingEntity - The populated meeting domain entity.
+     * @returns {Promise<Object>} The saved database record.
+     */
     async save(meetingEntity) {
         try {
             return await prisma.meeting.create({
@@ -10,12 +15,10 @@ class PrismaMeetingRepository {
                     startTime: meetingEntity.startTime,
                     duration: meetingEntity.durationInMinutes,
 
-                    // 💡 يفضل تغيير اسم العمود في Prisma لاحقاً إلى providerMeetingId
                     zoomMeetingId: meetingEntity.providerMeetingId,
                     joinUrl: meetingEntity.joinUrl,
                     userId: meetingEntity.userId,
 
-                    // 💡 يفضل تغييره لاحقاً إلى rawProviderResponse
                     rawZoomResponse: meetingEntity.rawResponse
                 }
             });
@@ -24,7 +27,11 @@ class PrismaMeetingRepository {
             throw new Error('فشل حفظ الاجتماع في قاعدة البيانات');
         }
     }
-
+    /**
+         * Retrieves all scheduled meetings for a specific user, ordered by start time.
+         * @param {string} userId - The unique identifier of the user.
+         * @returns {Promise<Array>} A list of meeting records.
+         */
     async findByUserId(userId) {
         try {
             return await prisma.meeting.findMany({

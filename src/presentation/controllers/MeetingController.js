@@ -4,7 +4,13 @@ const { meetingSchema, deleteMeetingSchema } = require('../../application/valida
 const meetingService = require('../../application/services/MeetingService'); // 👈 استدعاء الخدمة الجديدة
 
 class MeetingController {
-
+    /**
+         * Handles the scheduling of a new meeting.
+         * Validates the incoming payload and delegates the creation process to the ScheduleMeetingAction use case.
+         * @param {Object} req - Express request object containing the meeting data in req.body.
+         * @param {Object} res - Express response object.
+         * @returns {Promise<void>} Responds with a 202 Accepted status upon successful queuing.
+         */
     async schedule(req, res) {
         try {
             // 1. فحص البيانات
@@ -27,7 +33,12 @@ class MeetingController {
             res.status(400).json({ success: false, error: error.message });
         }
     }
-
+    /**
+         * Retrieves a list of live or cached meetings for a specific user.
+         * @param {Object} req - Express request object containing userId and forceRefresh in req.query.
+         * @param {Object} res - Express response object.
+         * @returns {Promise<void>} Responds with a JSON object containing the meetings list.
+         */
     async list(req, res) {
         try {
             const { userId, forceRefresh } = req.query;
@@ -41,7 +52,12 @@ class MeetingController {
             res.status(500).json({ error: error.message });
         }
     }
-
+    /**
+         * Deletes a specific meeting across the local database and the provider's API.
+         * @param {Object} req - Express request object containing userId and meetingId in req.params.
+         * @param {Object} res - Express response object.
+         * @returns {Promise<void>} Responds with a success message upon successful deletion.
+         */
     async delete(req, res) {
         try {
             // 1. فحص صحة المعاملات (Params Validation)

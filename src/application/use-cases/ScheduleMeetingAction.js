@@ -1,18 +1,21 @@
 const { addMeetingTask } = require('../../infrastructure/queue/MeetingQueue');
 const Meeting = require('../../domain/entities/Meeting');
 
+// Core Use Case: Orchestrates the process of scheduling a new meeting.
+// This class acts as the bridge between the Controller (Presentation layer)
+// and the Background Workers (Infrastructure layer).
 class ScheduleMeetingAction {
     async execute(meetingData, userId) {
-        // 1. إنشاء الكيان للتحقق من البيانات الأولية
+        // Step 1: Strict Domain Validation
         const meeting = new Meeting({ ...meetingData, userId });
 
-        // 2. إرسال المهمة للطابور
+        // Step 2: Add task to queue
         await addMeetingTask({
             meetingDetails: meeting,
             userId: userId
         });
 
-        // 3. الرد الفوري
+        // Step 3: Immediate Client Feedback (Fire and Forget)
         return {
             status: 'queued',
             message: 'Meeting creation is in progress.'

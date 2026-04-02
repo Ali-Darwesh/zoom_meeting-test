@@ -1,5 +1,5 @@
 const ZoomProvider = require('./ZoomProvider');
-// const GoogleMeetProvider = require('./GoogleMeetProvider'); // للمستقبل
+// const GoogleMeetProvider = require('./GoogleMeetProvider');
 
 class ProviderFactory {
     static getProvider(name) {
@@ -7,7 +7,7 @@ class ProviderFactory {
             case 'zoom':
                 return new ZoomProvider();
             case 'google-meet':
-                // return new GoogleMeetProvider(); // سيعمل بمجرد إضافة الملف
+                // return new GoogleMeetProvider();
                 throw new Error("Google Meet لم يتم تفعيله برمجياً بعد");
             default:
                 throw new Error(`المزود ${name} غير مدعوم`);

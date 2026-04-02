@@ -2,11 +2,19 @@
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
 const cache = require('../cache/RedisService');
+const encryption = require('../utils/EncryptionUtil'); // 👈 استدعاء طبقة التشفير
+
+// 1. Import the interface
+const IVideoConferenceService = require('../../application/interfaces/IVideoConferenceService');
 
 const prisma = new PrismaClient();
 
-class ZoomProvider {
+// 2. Extend the interface to guarantee this class implements 'createMeeting'
+class ZoomProvider extends IVideoConferenceService {
+
+    // Initialize base API configurations using environment variables
     constructor() {
+        super();
         this.baseURL = 'https://api.zoom.us/v2';
         this.oauthURL = 'https://zoom.us/oauth/token';
         this.clientId = process.env.ZOOM_CLIENT_ID;
@@ -14,31 +22,36 @@ class ZoomProvider {
     }
 
     /**
-     * دالة داخلية ذكية لجلب الـ Access Token
-     * تبحث في الكاش أولاً، وإذا كان منتهياً تقوم بتجديده تلقائياً
+     * Retrieves a valid Zoom access token for the given user.
+     * Checks the Redis cache first, then the database, and automatically refreshes the token.
      */
     async getValidAccessToken(userId) {
         const cacheKey = `zoom_token:${userId}`;
 
-        // 1. محاولة الجلب من الذاكرة السريعة (Redis)
+        // Step 1: Check Redis cache (Tokens in cache are stored decrypted for speed)
         let token = await cache.get(cacheKey);
         if (token) return token;
 
-        // 2. إذا لم يكن في الكاش، نجلبه من قاعدة البيانات
+        // Step 2: Fallback to Database
         const userToken = await prisma.oAuthToken.findUnique({ where: { userId } });
         if (!userToken) {
             throw new Error('ERR_USER_NOT_AUTHORIZED: User has not connected Zoom account');
         }
 
-        // 3. التحقق من الصلاحية (مع ترك هامش أمان 5 دقائق قبل الانتهاء الفعلي)
+        // Step 3: Decrypt the token from DB 🔓
+        // We decrypt it here to check expiration and to use it in API calls
+        let decryptedAccessToken = encryption.decrypt(userToken.accessToken);
+        let decryptedRefreshToken = encryption.decrypt(userToken.refreshToken);
+
+        // Step 4: Expiration Check (Safe margin of 5 minutes)
         const isExpired = new Date() > new Date(userToken.expiresAt.getTime() - 5 * 60000);
 
         if (isExpired) {
-            // تجديد التوكن إذا كان منتهياً
-            token = await this.refreshAccessToken(userId, userToken.refreshToken);
+            // Trigger refresh mechanism using the decrypted refresh token
+            token = await this.refreshAccessToken(userId, decryptedRefreshToken);
         } else {
-            token = userToken.accessToken;
-            // تخزينه في الكاش لمدة 55 دقيقة (التوكن الخاص بـ Zoom صالح لساعة)
+            // Token is still alive, store the decrypted version in Cache for the next 55 minutes
+            token = decryptedAccessToken;
             await cache.set(cacheKey, token, 3300);
         }
 
@@ -46,10 +59,10 @@ class ZoomProvider {
     }
 
     /**
-     * دالة مساعدة لتجديد التوكن عبر Zoom OAuth
+     * Handles the OAuth 2.0 refresh flow.
+     * Encrypts new tokens before saving to DB, but stores decrypted in Cache.
      */
     async refreshAccessToken(userId, refreshToken) {
-        // Zoom يتطلب إرسال الـ Client ID & Secret مشفرة بـ Base64 في الـ Header
         const authHeader = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
 
         try {
@@ -67,17 +80,17 @@ class ZoomProvider {
             const { access_token, refresh_token, expires_in } = response.data;
             const expiresAt = new Date(Date.now() + expires_in * 1000);
 
-            // تحديث التوكن في قاعدة البيانات
+            // Step 5: Encrypt new tokens before persisting to Database 🔐
             await prisma.oAuthToken.update({
                 where: { userId },
                 data: {
-                    accessToken: access_token,
-                    refreshToken: refresh_token,
+                    accessToken: encryption.encrypt(access_token),
+                    refreshToken: encryption.encrypt(refresh_token),
                     expiresAt
                 }
             });
 
-            // تحديث الكاش بالتوكن الجديد
+            // Update Cache with the plain (decrypted) token for immediate use
             await cache.set(`zoom_token:${userId}`, access_token, expires_in - 300);
 
             return access_token;
@@ -88,15 +101,15 @@ class ZoomProvider {
         }
     }
 
+    // ... باقي الدوال (createMeeting, getUpcomingMeetings, deleteMeeting) تبقى كما هي 
+    // لأنها تعتمد على getValidAccessToken التي أصبحت الآن تعيد توكن مفكوك التشفير وجاهز للاستخدام.
 
     async createMeeting(meetingEntity) {
-        // جلب توكن صالح للمستخدم صاحب الاجتماع
         const token = await this.getValidAccessToken(meetingEntity.userId);
-
         try {
             const response = await axios.post(`${this.baseURL}/users/me/meetings`, {
                 topic: meetingEntity.title,
-                type: 2, // 2 يعني اجتماع مجدول (Scheduled Meeting)
+                type: 2,
                 start_time: meetingEntity.startTime.toISOString(),
                 duration: meetingEntity.durationInMinutes,
                 timezone: 'UTC',
@@ -114,11 +127,9 @@ class ZoomProvider {
             });
 
             const zoomData = response.data;
-
-            // تحديث كائن الاجتماع بالبيانات الراجعة من زووم
             meetingEntity.providerMeetingId = zoomData.id.toString();
             meetingEntity.joinUrl = zoomData.join_url;
-            meetingEntity.rawResponse = zoomData; // نحتفظ بالرد كاملاً لنخزنه في الـ JSONB في قاعدة البيانات
+            meetingEntity.rawResponse = zoomData;
 
             return meetingEntity;
 
@@ -127,31 +138,21 @@ class ZoomProvider {
             throw new Error('ERR_ZOOM_MEETING_CREATION_FAILED');
         }
     }
-    /**
-     * جلب الاجتماعات القادمة مباشرة من Zoom API
-     */
-    async getUpcomingMeetings(userId) {
-        // جلب توكن صالح للمستخدم
-        const token = await this.getValidAccessToken(userId);
 
+    async getUpcomingMeetings(userId) {
+        const token = await this.getValidAccessToken(userId);
         try {
             const response = await axios.get(`${this.baseURL}/users/me/meetings`, {
-                params: {
-                    type: 'upcoming', // جلب الاجتماعات القادمة فقط
-                    page_size: 100    // الحد الأقصى للصفحة
-                },
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
+                params: { type: 'upcoming', page_size: 100 },
+                headers: { Authorization: `Bearer ${token}` }
             });
-
             return response.data.meetings;
-
         } catch (error) {
             console.error('[ZoomProvider] Fetch Meetings Error:', error.response?.data || error.message);
             throw new Error('ERR_FETCHING_ZOOM_MEETINGS');
         }
     }
+
     async deleteMeeting(userId, meetingId) {
         const token = await this.getValidAccessToken(userId);
         try {

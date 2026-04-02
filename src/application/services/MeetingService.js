@@ -4,11 +4,18 @@ const zoomProvider = new ZoomProvider();
 const cache = require('../../infrastructure/cache/RedisService');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+
 class MeetingService {
 
-    // دالة جلب الاجتماعات الحية من الكاش أو زووم
+    /**
+     * Fetches live upcoming meetings for a user, utilizing Redis cache and syncing with the Zoom API.
+     * Executes an upsert and cleanup algorithm to keep the local database synchronized with Zoom.
+     * * @param {string} userId - The unique UUID of the user.
+     * @param {boolean|string} forceRefresh - If true, bypasses the cache and forces a fresh sync with the Zoom API.
+     * @returns {Promise<{source: string, meetings: Array<Object>}>} An object containing the data source ('none', 'cache', or 'database_synced') and the formatted meetings list.
+     */
     async getLiveMeetings(userId, forceRefresh) {
-        // 1. قفل أمني: التأكد من أن المستخدم مربوط بزووم
+        // 1. Security Check: Ensure the user has a connected Zoom account
         const tokenExists = await prisma.oAuthToken.findUnique({ where: { userId } });
         if (!tokenExists) {
             return { source: 'none', meetings: [] };
@@ -20,23 +27,22 @@ class MeetingService {
             await cache.del(cacheKey);
         }
 
-        // 2. الجلب من الكاش (إذا كان موجوداً، لا نرهق قاعدة البيانات أو زووم)
+        // 2. Fetch from Cache (If available, avoids stressing DB and Zoom API)
         const cachedMeetings = await cache.get(cacheKey);
         if (cachedMeetings) {
             return { source: 'cache', meetings: cachedMeetings };
         }
 
-        // 3. إذا لم يكن هناك كاش، نجلب البيانات الحية من زووم
+        // 3. If no cache, fetch live data from Zoom API
         console.log('🔄 Syncing local Database with Zoom API...');
         const zoomMeetings = await zoomProvider.getUpcomingMeetings(userId);
 
-        // --- خوارزمية المزامنة الذكية (Database Sync Algorithm) ---
+        // --- Database Sync Algorithm ---
 
-        // أ) استخراج قائمة بأرقام الاجتماعات القادمة من زووم
+        // A) Extract a list of incoming Zoom meeting IDs
         const zoomMeetingIds = zoomMeetings.map(m => m.id.toString());
 
-        // ب) حلقة مرورية (Loop): إضافة الجديد، وتحديث المتغير
-        // استخدام upsert يعني: إذا وجدته قم بتحديثه، وإذا لم تجده قم بإنشائه
+        // B) Loop through Zoom meetings: Upsert (Update if exists, Create if not)
         for (const zm of zoomMeetings) {
             await prisma.meeting.upsert({
                 where: { zoomMeetingId: zm.id.toString() },
@@ -58,8 +64,7 @@ class MeetingService {
             });
         }
 
-        // ج) تنظيف قاعدة البيانات: حذف أي اجتماع محلي لم يعد موجوداً في زووم
-        // نحذف فقط اجتماعات هذا المستخدم التي الـ ID الخاص بها ليس في قائمة زووم الجديدة
+        // C) Database Cleanup: Delete any local meeting that no longer exists on Zoom
         await prisma.meeting.deleteMany({
             where: {
                 userId: userId,
@@ -67,48 +72,55 @@ class MeetingService {
             }
         });
 
-        // ---  نهاية خوارزمية المزامنة ---
+        // --- End of Sync Algorithm ---
 
-        // 4. توحيد شكل البيانات للواجهة
+        // 4. Format data uniformly for the frontend
         const formattedMeetings = zoomMeetings.map(m => ({
-            id: m.id, // نرسل ID زووم للواجهة لكي يسهل التعامل معه
+            id: m.id, // Send Zoom ID to frontend for easier handling
             title: m.topic,
             startTime: m.start_time,
             joinUrl: m.join_url
         }));
 
-        // 5. حفظ النتيجة المتزامنة في الكاش لمدة 60 ثانية لحماية النظام
+        // 5. Save the synchronized result in cache for 60 seconds to protect the system
         await cache.set(cacheKey, formattedMeetings, 60);
 
         return { source: 'database_synced', meetings: formattedMeetings };
     }
-    // دالة حذف الاجتماع
+
+    /**
+     * Deletes a meeting from both the local database and the Zoom API.
+     * Includes an IDOR (Insecure Direct Object Reference) check to ensure the user owns the meeting.
+     * * @param {string} userId - The unique UUID of the user performing the deletion.
+     * @param {string|number} meetingId - The provider's meeting ID (e.g., Zoom Meeting ID) provided by the frontend.
+     * @returns {Promise<boolean>} Returns true if the deletion is successful across all systems.
+     * @throws {Error} Throws an error if the meeting is not found or the user is unauthorized to delete it.
+     */
     async deleteMeeting(userId, meetingId) {
-        // 1. البحث في قاعدة البيانات باستخدام zoomMeetingId (لأن الواجهة ترسل رقم زووم)
-        // حولنا meetingId إلى نص (String) ليتطابق مع نوع الحقل في Prisma
+        // 1. Search DB using zoomMeetingId (converted to string to match Prisma schema)
         const meeting = await prisma.meeting.findUnique({
             where: { zoomMeetingId: meetingId.toString() }
         });
 
-        // 2. التحقق من وجود الاجتماع
+        // 2. Verify meeting existence
         if (!meeting) {
-            throw new Error("الاجتماع غير موجود أو تم حذفه مسبقاً");
+            throw new Error("Meeting not found or already deleted");
         }
 
-        // 3. الحماية من ثغرة IDOR
+        // 3. IDOR Protection
         if (meeting.userId !== userId) {
-            throw new Error("عملية مرفوضة: غير مصرح لك بحذف اجتماعات مستخدمين آخرين");
+            throw new Error("Operation Denied: Unauthorized to delete other users' meetings");
         }
 
-        // 4. الحذف من سيرفرات Zoom
+        // 4. Delete from Zoom servers
         await zoomProvider.deleteMeeting(userId, meeting.zoomMeetingId);
 
-        // 5. الحذف من قاعدة بياناتنا المحلية (نستخدم الـ ID الأساسي للاجتماع الذي وجدناه)
+        // 5. Delete from local database (using our internal primary key)
         await prisma.meeting.delete({
             where: { id: meeting.id }
         });
 
-        // 6. إبطال الكاش فوراً
+        // 6. Invalidate cache immediately
         await cache.del(`zoom_live_meetings:${userId}`);
 
         return true;
