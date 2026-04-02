@@ -30,8 +30,19 @@ git clone <repository-url>
 cd zoom-meeting-api
 npm install
 ```
+**2. Create Zoom Account and build app in [Zoom APP marketplace](https://marketplace.zoom.us/):**
 
-**2. Configure Environment Variables:**
+Develop->Build app->General app->
+
+1.Basic information : Select how the app is managed(User-managed)
+ , OAuth Redirect URL"http://localhost:3000/api/zoom/callback".
+
+2.Scops : add scopes from meetings
+(Create a meeting for a user , meeting:read:meeting , View a user's meetings , Delete a meeting)
+
+3. you will use CLIENT_ID and CLIENT_SECRET in next step in .env file.
+
+**3. Configure Environment Variables:**
 Create a `.env` file in the root directory and add your specific configurations:
 ```env
 # Database & Redis
@@ -47,20 +58,20 @@ ZOOM_CLIENT_SECRET="your_zoom_client_secret"
 ZOOM_REDIRECT_URI="http://localhost:3000/api/zoom/callback"
 ```
 
-**3. Setup the Database (Prisma):**
+**4. Setup the Database (Prisma):**
 Generate the Prisma client and push the schema to your database.
 ```bash
 npx prisma generate
 npx prisma db push
 ```
 
-**4. Run the Application:**
+**5. Run the Application:**
 Start the development server (This will spin up both the Express API and the BullMQ background workers).
 ```bash
 npm start 
 ```
 
-**5. Run Unit Tests:**
+**6. Run Unit Tests:**
 To execute the Jest test suite (with mocked databases and queues):
 ```bash
 npm test
