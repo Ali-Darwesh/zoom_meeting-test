@@ -1,0 +1,54 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String       @id @default(uuid())
+  email         String       @unique
+  name          String?
+  zoomAccountId String?      @unique 
+  
+  tokens        OAuthToken?
+  meetings      Meeting[]
+  createdAt     DateTime     @default(now())
+  
+  @@map("user")
+}
+
+model OAuthToken {
+  id           String   @id @default(uuid())
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  userId       String   @unique
+  
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade) 
+  
+  @@map("oauthtoken")
+}
+
+model Meeting {
+  id              String   @id @default(uuid())
+  title           String
+  startTime       DateTime
+  duration        Int
+  zoomMeetingId   String   @unique
+  joinUrl         String
+  status          String   @default("scheduled")
+  
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  rawZoomResponse Json?
+  createdAt       DateTime @default(now())
+  
+  @@map("meetings")
+}

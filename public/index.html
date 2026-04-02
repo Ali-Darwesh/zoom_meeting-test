@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام إدارة اجتماعات زووم</title>
+    <link rel="icon" href="data:,">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
+
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        .direction-ltr {
+            direction: ltr;
+        }
+    </style>
+</head>
+
+<body class="text-gray-800 p-4 sm:p-8">
+
+    <div
+        class="max-w-5xl mx-auto bg-white rounded-xl shadow-md p-6 mb-6 flex flex-col sm:flex-row justify-between items-center border-t-4 border-blue-500">
+        <div class="mb-4 sm:mb-0 text-center sm:text-right">
+            <h1 class="text-2xl font-bold text-gray-800"><i class="fas fa-video text-blue-500 ml-2"></i> مدير اجتماعات
+                زووم</h1>
+            <p class="text-gray-500 text-sm mt-1">بنية تحتية نظيفة مع مزامنة ذكية</p>
+        </div>
+
+        <div id="authContainer" class="flex items-center space-x-reverse space-x-3">
+            <span id="statusBadge"
+                class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
+                <i class="fas fa-spinner fa-spin ml-2"></i> جاري التحقق...
+            </span>
+            <a href="/api/zoom" id="connectBtn"
+                class="hidden bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium transition shadow-sm flex items-center">
+                <i class="fas fa-link ml-2"></i> ربط الحساب
+            </a>
+        </div>
+    </div>
+
+    <div id="appContent" class="max-w-5xl mx-auto hidden">
+        <div class="bg-white rounded-xl shadow-md p-8">
+            <h2 class="text-xl font-bold mb-6 border-b pb-2"><i class="far fa-calendar-alt text-gray-400 ml-2"></i>
+                جدولة اجتماع جديد</h2>
+            <form id="meetingForm" class="space-y-5">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">عنوان الاجتماع</label>
+                    <input type="text" id="title" required placeholder="مثال: مقابلة عمل للمهندس أحمد"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">تاريخ ووقت البدء</label>
+                        <input type="datetime-local" id="startTime" required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">المدة (بالدقائق)</label>
+                        <select id="duration"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="15">15 دقيقة</option>
+                            <option value="30">30 دقيقة</option>
+                            <option value="45" selected>45 دقيقة</option>
+                            <option value="60">ساعة واحدة</option>
+                        </select>
+                    </div>
+                </div>
+                <input type="hidden" id="userId" value="123e4567-e89b-12d3-a456-426614174000">
+                <button type="submit" id="submitBtn"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition flex justify-center items-center mt-4">
+                    <i class="fas fa-paper-plane ml-2"></i> إنشاء الاجتماع الآن
+                </button>
+            </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-md p-8 mt-8">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold"><i class="fas fa-list text-gray-400 ml-2"></i> الاجتماعات القادمة</h2>
+                <button id="refreshMeetingsBtn"
+                    class="text-blue-600 hover:text-blue-800 text-sm font-bold flex items-center transition">
+                    <i class="fas fa-sync-alt ml-1"></i> <span>تحديث القائمة</span>
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-right border-collapse">
+                    <thead>
+                        <tr class="bg-gray-50 border-b">
+                            <th class="p-4 text-sm font-bold text-gray-600">العنوان</th>
+                            <th class="p-4 text-sm font-bold text-gray-600">الوقت</th>
+                            <th class="p-4 text-sm font-bold text-gray-600">العمليات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="meetingsList">
+                        <tr>
+                            <td colspan="3" class="p-8 text-center text-gray-400">جاري تحميل الاجتماعات...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="resultCard"
+        class="max-w-5xl mx-auto bg-gray-800 text-green-400 rounded-xl shadow-md p-6 mt-6 hidden border-l-4 border-green-500">
+        <h3 class="font-bold text-white mb-2"><i class="fas fa-terminal ml-2"></i> استجابة النظام:</h3>
+        <pre id="resultText"
+            class="text-sm font-mono whitespace-pre-wrap direction-ltr text-left bg-gray-900 p-4 rounded-lg"></pre>
+    </div>
+
+    <script>
+        // 1. التحقق من الحالة عند التحميل
+        document.addEventListener('DOMContentLoaded', async () => {
+            const userId = document.getElementById('userId').value;
+            const statusBadge = document.getElementById('statusBadge');
+            const connectBtn = document.getElementById('connectBtn');
+            const appContent = document.getElementById('appContent');
+
+            try {
+                const response = await fetch(`/api/zoom/status?userId=${userId}`);
+                const data = await response.json();
+                connectBtn.classList.remove('hidden');
+
+                if (data.isConnected) {
+                    appContent.classList.remove('hidden');
+                    statusBadge.className = 'inline-flex items-center px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-700 border border-green-200';
+                    statusBadge.innerHTML = '<i class="fas fa-check-circle ml-2"></i> متصل بـ Zoom';
+                    connectBtn.innerHTML = '<i class="fas fa-sync-alt ml-2"></i> تحديث الربط';
+                    fetchMeetings();
+                } else {
+                    appContent.classList.add('hidden');
+                    statusBadge.className = 'inline-flex items-center px-3 py-1 rounded-full text-sm font-bold bg-red-100 text-red-700 border border-red-200';
+                    statusBadge.innerHTML = '<i class="fas fa-exclamation-triangle ml-2"></i> يرجى ربط الحساب';
+                }
+            } catch (error) {
+                statusBadge.innerHTML = '<i class="fas fa-times-circle ml-2"></i> خطأ في الاتصال';
+            }
+        });
+
+        // 2. دالة جلب الاجتماعات المحسنة
+        async function fetchMeetings(forceRefresh = false) {
+            const userId = document.getElementById('userId').value;
+            const listContainer = document.getElementById('meetingsList');
+            const refreshBtn = document.getElementById('refreshMeetingsBtn');
+            const btnText = refreshBtn?.querySelector('span');
+
+            if (refreshBtn && forceRefresh) {
+                refreshBtn.disabled = true;
+                if (btnText) btnText.innerText = "جاري التحديث...";
+            }
+
+            try {
+                const response = await fetch(`/api/meetings?userId=${userId}&forceRefresh=${forceRefresh}`);
+                const data = await response.json();
+
+                if (response.status === 429) {
+                    if (listContainer.innerHTML.includes('جاري تحميل') || listContainer.innerText.trim() === '') {
+                        listContainer.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-orange-600 bg-orange-50 font-bold">${data.error}</td></tr>`;
+                    }
+                    return;
+                }
+
+                if (data.meetings && data.meetings.length > 0) {
+                    listContainer.innerHTML = data.meetings.map(m => {
+                        // تحديد تنسيق الاجتماع بناءً على حالته
+                        const isPast = m.status === 'past';
+
+                        return `
+            <tr class="border-b transition ${isPast ? 'opacity-60 bg-gray-50' : 'hover:bg-gray-50'}">
+                <td class="p-4 font-medium">
+                    <div class="flex items-center">
+                        ${isPast ? '<i class="fas fa-history text-gray-400 ml-2 text-xs"></i>' : '<i class="fas fa-calendar-check text-blue-500 ml-2 text-xs"></i>'}
+                        <span>${m.title}</span>
+                        ${isPast ? '<span class="mr-2 px-2 py-0.5 text-[10px] bg-gray-200 text-gray-600 rounded">منتهٍ</span>' : ''}
+                    </div>
+                </td>
+                <td class="p-4 text-sm text-gray-500">${new Date(m.startTime).toLocaleString('ar-EG')}</td>
+                <td class="p-4 flex space-x-reverse space-x-2">
+                    ${!isPast ? `
+                        <a href="${m.joinUrl}" target="_blank" class="bg-blue-50 text-blue-600 px-3 py-1 rounded-md text-xs font-bold hover:bg-blue-100">
+                            <i class="fas fa-external-link-alt"></i> انضمام
+                        </a>
+                    ` : `
+                        <span class="text-gray-400 px-3 py-1 text-xs italic">انتهى الوقت</span>
+                    `}
+                    
+                    <button data-id="${m.id}" class="delete-btn bg-red-50 text-red-600 px-3 py-1 rounded-md text-xs font-bold hover:bg-red-100">
+                        <i class="fas fa-trash-alt pointer-events-none"></i> حذف
+                    </button>
+                </td>
+            </tr>
+        `;
+                    }).join('');
+                } else {
+                    listContainer.innerHTML = '<tr><td colspan="3" class="p-8 text-center text-gray-400">لا توجد اجتماعات مجدولة.</td></tr>';
+                }
+            } catch (error) {
+                listContainer.innerHTML = '<tr><td colspan="3" class="p-8 text-center text-red-400">فشل في مزامنة البيانات.</td></tr>';
+            } finally {
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    if (btnText) btnText.innerText = "تحديث القائمة";
+                }
+            }
+        }
+
+        // 3. إنشاء اجتماع
+        document.getElementById('meetingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const resultCard = document.getElementById('resultCard');
+            const resultText = document.getElementById('resultText');
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin ml-2"></i> جاري المعالجة...';
+
+            const payload = {
+                title: document.getElementById('title').value,
+                startTime: new Date(document.getElementById('startTime').value).toISOString(),
+                durationInMinutes: parseInt(document.getElementById('duration').value),
+                providerName: "zoom",
+                userId: document.getElementById('userId').value
+            };
+
+            try {
+                const response = await fetch('/api/meetings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                resultCard.classList.remove('hidden');
+
+                if (response.ok || response.status === 202) {
+                    resultText.className = "text-sm font-mono text-green-400 bg-gray-900 p-4 rounded-lg";
+                    resultText.textContent = "✅ تم الجدولة! سيتم التحديث تلقائياً خلال ثوانٍ...";
+                    setTimeout(() => { fetchMeetings(true); document.getElementById('meetingForm').reset(); }, 3500);
+                } else {
+                    resultText.className = "text-sm font-mono text-red-400 bg-gray-900 p-4 rounded-lg";
+                    resultText.textContent = data.errors ? data.errors.join('\n') : data.error;
+                }
+            } catch (error) {
+                resultText.textContent = "🔌 خطأ في الشبكة.";
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-paper-plane ml-2"></i> إنشاء الاجتماع الآن';
+            }
+        });
+
+        // 4. الحذف الآمن (تفويض الأحداث)
+        document.getElementById('meetingsList').addEventListener('click', async (e) => {
+            const targetBtn = e.target.closest('.delete-btn');
+            if (!targetBtn) return;
+            const meetingId = targetBtn.getAttribute('data-id');
+            if (!confirm('هل تريد حذف الاجتماع نهائياً؟')) return;
+
+            const userId = document.getElementById('userId').value;
+            try {
+                const response = await fetch(`/api/meetings/${userId}/${meetingId}`, { method: 'DELETE' });
+                if (response.ok) fetchMeetings(true);
+                else alert('فشل الحذف، ربما بسبب قيود الحماية.');
+            } catch (error) { console.error(error); }
+        });
+
+        // 5. زر التحديث اليدوي
+        document.getElementById('refreshMeetingsBtn').addEventListener('click', () => fetchMeetings(true));
+
+        // 6. التحديث التلقائي (كل 60 ثانية)
+        setInterval(() => {
+            if (!document.getElementById('appContent').classList.contains('hidden')) {
+                fetchMeetings(true);
+            }
+        }, 60000);
+    </script>
+</body>
+
+</html>
